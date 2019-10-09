@@ -4,7 +4,6 @@ go 1.13
 
 require (
 	github.com/golang/groupcache v0.0.0-20181024230925-c65c006176ff // indirect
-	github.com/kubernetes-sigs/application v0.8.0
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
 	github.com/pkg/errors v0.8.1
@@ -17,7 +16,7 @@ require (
 )
 
 replace (
-	gopkg.in/fsnotify.v1 v1.4.7 => github.com/fsnotify/fsnotify v1.4.7
+	// gopkg.in/fsnotify.v1 v1.4.7 => github.com/fsnotify/fsnotify v1.4.7
 
 	k8s.io/api => k8s.io/api v0.0.0-20191003000013-35e20aa79eb8
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.0.0-20191003002041-49e3d608220c

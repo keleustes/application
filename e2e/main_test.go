@@ -17,7 +17,7 @@ limitations under the License.
 package main
 
 import (
-	"github.com/kubernetes-sigs/application/pkg/apis"
+	"sigs.k8s.io/application/pkg/apis"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"log"
@@ -25,7 +25,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/kubernetes-sigs/application/e2e/testutil"
+	"sigs.k8s.io/application/e2e/testutil"
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"

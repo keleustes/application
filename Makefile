@@ -1,8 +1,65 @@
 
-# Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+# Define Docker related variables. Releases should modify and double check these vars.
+# REGISTRY ?= gcr.io/$(shell gcloud config get-value project)
+REGISTRY ?= keleustes
+IMAGE_NAME ?= application-controller
+CONTROLLER_IMG ?= $(REGISTRY)/$(IMAGE_NAME)
+TAG ?= dev
+ARCH ?= amd64
+ALL_ARCH = amd64 arm arm64 ppc64le s390x
 
 .PHONY: test manager run debug install deploy manifests fmt vet generate docker-build docker-push
+
+# Directories.
+TOOLS_DIR := hack/tools
+TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
+BIN_DIR := bin
+
+# Binaries.
+CLUSTERCTL := $(BIN_DIR)/clusterctl
+CONTROLLER_GEN := $(TOOLS_BIN_DIR)/controller-gen
+GOLANGCI_LINT := $(TOOLS_BIN_DIR)/golangci-lint
+MOCKGEN := $(TOOLS_BIN_DIR)/mockgen
+CONVERSION_GEN := $(TOOLS_BIN_DIR)/conversion-gen
+KUBEBUILDER := $(TOOLS_BIN_DIR)/kubebuilder
+KUSTOMIZE := $(TOOLS_BIN_DIR)/kustomize
+
+# Allow overriding manifest generation destination directory
+MANIFEST_ROOT ?= config
+CRD_ROOT ?= $(MANIFEST_ROOT)/crds
+WEBHOOK_ROOT ?= $(MANIFEST_ROOT)/webhook
+RBAC_ROOT ?= $(MANIFEST_ROOT)/rbac
+
+
+## --------------------------------------
+## Tooling Binaries
+## --------------------------------------
+
+$(CLUSTERCTL): go.mod ## Build clusterctl binary.
+	go build -o $(BIN_DIR)/clusterctl sigs.k8s.io/cluster-api/cmd/clusterctl
+
+$(CONTROLLER_GEN): $(TOOLS_DIR)/go.mod # Build controller-gen from tools folder.
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/controller-gen sigs.k8s.io/controller-tools/cmd/controller-gen
+
+$(GOLANGCI_LINT): $(TOOLS_DIR)/go.mod # Build golangci-lint from tools folder.
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/golangci-lint github.com/golangci/golangci-lint/cmd/golangci-lint
+
+$(MOCKGEN): $(TOOLS_DIR)/go.mod # Build mockgen from tools folder.
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/mockgen github.com/golang/mock/mockgen
+
+$(CONVERSION_GEN): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/conversion-gen k8s.io/code-generator/cmd/conversion-gen
+
+$(KUBEBUILDER): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); ./install_kubebuilder.sh
+
+$(KUSTOMIZE): $(TOOLS_DIR)/go.mod
+	cd $(TOOLS_DIR); ./install_kustomize.sh
+
+## --------------------------------------
+## Linting
+## --------------------------------------
+
 
 all: test manager
 
@@ -12,7 +69,7 @@ test: generate fmt vet manifests
 
 # Build manager binary
 manager: generate fmt vet
-	go build -o bin/manager github.com/kubernetes-sigs/application/cmd/manager
+	go build -o bin/manager ./cmd/manager/main.go
 
 # Run using the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet
@@ -24,21 +81,27 @@ debug: generate fmt vet
 
 # Install CRDs into a cluster
 install: manifests
-	kubectl apply -f config/crds
+	kubectl apply -k config/crds
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests
-	kubectl apply -f config/crds
-	kustomize build config/default | kubectl apply -f -
+	kubectl apply -k config/crds
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 
 # unDeploy controller in the configured Kubernetes cluster in ~/.kube/config
 undeploy: manifests
-	kustomize build config/default | kubectl delete -f -
+	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 # Generate manifests e.g. CRD, RBAC etc.
-manifests:
-	go run vendor/sigs.k8s.io/controller-tools/cmd/controller-gen/main.go all
+.PHONY: manifests
+manifests: $(CONTROLLER_GEN) ## Generate manifests e.g. CRD, RBAC etc.
+	$(CONTROLLER_GEN) \
+		paths=./pkg/apis/... \
+		crd:trivialVersions=true \
+		output:crd:dir=$(CRD_ROOT) \
+		output:webhook:dir=$(WEBHOOK_ROOT) \
+		webhook
 
 # Run go fmt against code
 fmt:
@@ -48,16 +111,31 @@ fmt:
 vet:
 	go vet ./pkg/... ./cmd/...
 
+.PHONY: generate
+generate: ## Generate code
+	$(MAKE) generate-go
+	$(MAKE) manifests
+
 # Generate code
-generate:
+.PHONY: generate-go
+generate-go: $(CONTROLLER_GEN) $(MOCKGEN) $(CONVERSION_GEN) $(KUBEBUILDER) $(KUSTOMIZE) ## Runs Go related generate targets
 	go generate ./pkg/... ./cmd/...
+	$(CONTROLLER_GEN) \
+		paths=./pkg/apis/app/v1beta1/... \
+		object:headerFile=./hack/boilerplate.go.txt
 
-# Build the docker image
-docker-build: test
-	docker build . -t ${IMG}
+## --------------------------------------
+## Docker
+## --------------------------------------
+
+.PHONY: docker-build
+docker-build: ## Build the docker image for controller-manager
+	docker build --network=host --pull --build-arg ARCH=$(ARCH) . -t $(CONTROLLER_IMG)-$(ARCH):$(TAG)
 	@echo "updating kustomize image patch file for manager resource"
-	sed -i'' -e 's@image: .*@image: '"${IMG}"'@' ./config/default/manager_image_patch.yaml
+	sed -i'' -e 's@image: .*@image: '"${CONTROLLER_IMG}-$(ARCH):$(TAG)"'@' ./config/default/manager_image_patch.yaml
+	# MANIFEST_IMG=$(CONTROLLER_IMG)-$(ARCH) MANIFEST_TAG=$(TAG) $(MAKE) set-manifest-image
+	# $(MAKE) set-manifest-pull-policy
 
-# Push the docker image
-docker-push:
-	docker push ${IMG}
+.PHONY: docker-push
+docker-push: ## Push the docker image
+	docker push $(CONTROLLER_IMG)-$(ARCH):$(TAG)
