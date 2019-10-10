@@ -79,19 +79,46 @@ run: generate fmt vet
 debug: generate fmt vet
 	dlv debug cmd/manager/main.go
 
+# Run go fmt against code
+fmt:
+	go fmt ./pkg/... ./cmd/...
+
+# Run go vet against code
+vet:
+	go vet ./pkg/... ./cmd/...
+
+## --------------------------------------
+## Deploying
+## --------------------------------------
+
 # Install CRDs into a cluster
-install: manifests
+install: $(KUSTOMIZE)
 	kubectl apply -k config/crds
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
-	kubectl apply -k config/crds
+deploy: $(KUSTOMIZE)
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 
 # unDeploy controller in the configured Kubernetes cluster in ~/.kube/config
-undeploy: manifests
+undeploy: $(KUSTOMIZE)
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
+
+# Deploy wordpress
+deploy-wordpress: $(KUSTOMIZE)
+	mkdir -p /tmp/data1 /tmp/data2
+	$(KUSTOMIZE) build examples/wordpress | kubectl apply -f -
+
+
+# Uneploy wordpress
+undeploy-wordpress: $(KUSTOMIZE)
+	$(KUSTOMIZE) build examples/wordpress | kubectl delete -f -
+	# kubectl delete pvc --all
+	# sudo rm -fr /tmp/data1 /tmp/data2
+
+## --------------------------------------
+## Generating
+## --------------------------------------
 
 # Generate manifests e.g. CRD, RBAC etc.
 .PHONY: manifests
@@ -102,14 +129,6 @@ manifests: $(CONTROLLER_GEN) ## Generate manifests e.g. CRD, RBAC etc.
 		output:crd:dir=$(CRD_ROOT) \
 		output:webhook:dir=$(WEBHOOK_ROOT) \
 		webhook
-
-# Run go fmt against code
-fmt:
-	go fmt ./pkg/... ./cmd/...
-
-# Run go vet against code
-vet:
-	go vet ./pkg/... ./cmd/...
 
 .PHONY: generate
 generate: ## Generate code
@@ -133,8 +152,6 @@ docker-build: ## Build the docker image for controller-manager
 	docker build --network=host --pull --build-arg ARCH=$(ARCH) . -t $(CONTROLLER_IMG)-$(ARCH):$(TAG)
 	@echo "updating kustomize image patch file for manager resource"
 	sed -i'' -e 's@image: .*@image: '"${CONTROLLER_IMG}-$(ARCH):$(TAG)"'@' ./config/default/manager_image_patch.yaml
-	# MANIFEST_IMG=$(CONTROLLER_IMG)-$(ARCH) MANIFEST_TAG=$(TAG) $(MAKE) set-manifest-image
-	# $(MAKE) set-manifest-pull-policy
 
 .PHONY: docker-push
 docker-push: ## Push the docker image
