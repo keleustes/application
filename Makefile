@@ -1,7 +1,6 @@
 
 # Define Docker related variables. Releases should modify and double check these vars.
-# REGISTRY ?= gcr.io/$(shell gcloud config get-value project)
-REGISTRY ?= keleustes
+REGISTRY ?= gcr.io/$(shell gcloud config get-value project)
 IMAGE_NAME ?= application-controller
 CONTROLLER_IMG ?= $(REGISTRY)/$(IMAGE_NAME)
 TAG ?= dev
